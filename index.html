@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Progression Shooter</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Three.js and PointerLockControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a2e;
+        }
+        canvas {
+            display: block;
+        }
+        #game-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Allows mouse clicks to pass through to the canvas */
+            color: white;
+            z-index: 10;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 8px;
+            height: 8px;
+            margin-top: -4px;
+            margin-left: -4px;
+            border: 1px solid #ff416c; /* Bright pink/red */
+            border-radius: 50%;
+            box-shadow: 0 0 5px #ff416c;
+            pointer-events: none;
+        }
+        #blocker {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            z-index: 20;
+        }
+        .info-card {
+            background-color: #2e094c;
+            padding: 3rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            border: 2px solid #ff416c;
+            max-width: 90%;
+            pointer-events: auto; /* Re-enable pointer events for the card */
+        }
+        #healthBarContainer {
+            width: 150px;
+            height: 20px;
+            border: 1px solid #fff;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+        #healthBar {
+            height: 100%;
+            background-color: #10b981; /* Emerald green */
+            transition: width 0.3s;
+        }
+        .level-button {
+            transition: all 0.2s;
+        }
+        .level-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(255, 65, 108, 0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Game Blockers and UI -->
+    <div id="blocker" class="transition-opacity duration-300">
+        <div id="instructions" class="info-card">
+            <!-- Initial content will be set by showLevelSelect() -->
+            <h1 class="text-4xl font-bold mb-4 text-indigo-400">3D Shooter Arena</h1>
+            <button id="startButton" class="bg-pink-600 hover:bg-pink-700 text-white font-bold py-3 px-6 rounded-lg transition duration-200 shadow-xl">LOADING...</button>
+        </div>
+    </div>
+
+    <div id="game-overlay">
+        <!-- Crosshair -->
+        <div id="crosshair"></div>
+
+        <!-- Score/HUD -->
+        <div class="absolute top-4 left-4 p-4 rounded-lg bg-gray-900 bg-opacity-70 shadow-lg border border-indigo-700">
+            <p class="text-2xl font-bold mb-1">Score: <span id="scoreDisplay" class="text-pink-400">0</span></p>
+            <p class="text-lg mb-2">Money: $<span id="moneyDisplay" class="text-green-400">0</span></p>
+            
+            <div class="flex items-center">
+                <p class="text-lg mr-2">Health:</p>
+                <div id="healthBarContainer">
+                    <div id="healthBar"></div>
+                </div>
+            </div>
+            <p class="text-sm text-gray-400 mt-1">Status: <span id="healthValueDisplay">120</span> / 120</p>
+        </div>
+
+        <!-- Level Display (New) -->
+        <div class="absolute top-4 right-4 p-4 rounded-lg bg-gray-900 bg-opacity-70 shadow-lg border border-indigo-700">
+             <p class="text-2xl font-bold mb-1 text-indigo-400" id="currentLevelDisplay">Level: 1</p>
+             <p class="text-lg">Enemies Left: <span id="enemiesLeftDisplay" class="text-pink-400">0</span></p>
+        </div>
+
+        <!-- Weapon Display -->
+        <div class="absolute bottom-4 right-4 p-4 rounded-lg bg-gray-900 bg-opacity-70 shadow-lg border border-indigo-700 text-right">
+            <p class="text-2xl font-bold text-indigo-400" id="weaponNameDisplay">Pistol</p>
+            <p class="text-lg text-gray-400" id="weaponStatsDisplay">Damage: 1 | Cost: 0</p>
+        </div>
+
+        <!-- Shop Modal (Hidden initially) -->
+        <div id="shopModal" class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-lg hidden pointer-events-auto">
+            <div class="info-card p-6">
+                <h2 class="text-3xl font-bold mb-4 text-pink-400">WEAPON SHOP (Press 'E' to close)</h2>
+                <div class="space-y-4">
+                    <div id="shotgunOffer" class="flex justify-between items-center p-3 bg-gray-800 rounded-lg border border-indigo-500">
+                        <div>
+                            <p class="text-xl font-bold">Shotgun</p>
+                            <p class="text-sm text-gray-400">High Damage (3 Hits per enemy) | Cost: <span class="text-green-400">$300</span></p>
+                        </div>
+                        <button id="buyShotgunButton" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200" data-cost="300" onclick="buyWeapon('Shotgun')">BUY</button>
+                    </div>
+                    <!-- Future weapons can be added here -->
+                    <div class="text-center text-sm text-gray-500 mt-4">More weapons coming soon!</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Global Variables and Setup ---
+        const WEAPONS = {
+            Pistol: { name: "Pistol", cost: 0, damage: 1, color: 0xff416c, rate: 250 }, // rate in ms
+            Shotgun: { name: "Shotgun", cost: 300, damage: 3, color: 0xcccccc, rate: 800 }
+        };
+        
+        // --- LEVEL CONFIGURATION (New) ---
+        const LEVELS = [
+            { name: "Level 1: The Basics", maxEnemies: 5, enemyHealth: 3, enemyDamage: 10, parkour: false },
+            { name: "Level 2: Escalation", maxEnemies: 8, enemyHealth: 4, enemyDamage: 15, parkour: false },
+            { name: "Level 3: Parkour & Mobs", maxEnemies: 12, enemyHealth: 5, enemyDamage: 20, parkour: true }
+            // Add more levels here...
+        ];
+
+        const MAX_HEALTH = 120; // Increased base health
+        const BULLET_SPEED = 500; // units per second
+        const BULLET_LIFESPAN = 500; // Max distance before removal
+        
+        // Player/Enemy Sizing Constants
+        const PLAYER_HEIGHT = 10;
+        const ARENA_LIMIT = 247; 
+        
+        // Collision Radii
+        const PLAYER_HIT_RADIUS = 3.5; 
+        const ENEMY_HIT_RADIUS = 5.0; 
+
+        // Enemy AI Movement Constants
+        const ENEMY_SPEED = 60.0; 
+        const ENEMY_APPROACH_RANGE = 150.0; 
+        
+        // Health Pickup Constants
+        const HEALTH_DROP_CHANCE = 0.25; // 25% chance of dropping health on kill
+        const HEALTH_PICKUP_VALUE = 15; // Health restored per pickup
+        const PICKUP_RADIUS = 5.0; 
+
+        // Game State
+        let score = 0;
+        let money = 0;
+        let playerHealth = MAX_HEALTH; 
+        let isGameOver = false; 
+        let isShopOpen = false;
+        let isLevelActive = false; // <<< NEW STATE FLAG: Only true during active combat >>>
+        let currentWeapon = WEAPONS.Pistol;
+        let lastShotTime = 0;
+        let projectiles = []; 
+        let healthPickups = [];
+        let currentLevelIndex = 0; // Current level being played (0-indexed)
+        let enemiesSpawnedInLevel = 0; // How many enemies have been created for the current level
+
+        // Three.js Core Components
+        let camera, scene, renderer, controls;
+        let raycaster; 
+        let moveForward = false;
+        let moveBackward = false;
+        let moveLeft = false;
+        let moveRight = false;
+        let canJump = false;
+
+        let velocity = new THREE.Vector3();
+        let direction = new THREE.Vector3();
+        const ENEMY_TAG = 'enemy';
+        const enemies = [];
+        const RESPAWN_INTERVAL = 3000; // ms
+        let enemyRespawnTimeout;
+        let prevTime = performance.now();
+
+        // DOM Elements
+        const blocker = document.getElementById('blocker');
+        const instructions = document.getElementById('instructions');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const moneyDisplay = document.getElementById('moneyDisplay');
+        const healthBar = document.getElementById('healthBar');
+        const healthValueDisplay = document.getElementById('healthValueDisplay');
+        const shopModal = document.getElementById('shopModal');
+        const weaponNameDisplay = document.getElementById('weaponNameDisplay');
+        const weaponStatsDisplay = document.getElementById('weaponStatsDisplay');
+        const buyShotgunButton = document.getElementById('buyShotgunButton');
+        const currentLevelDisplay = document.getElementById('currentLevelDisplay');
+        const enemiesLeftDisplay = document.getElementById('enemiesLeftDisplay');
+
+
+        // --- Game Setup Functions ---
+
+        function init() {
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.y = PLAYER_HEIGHT; 
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+            
+            // Scene must be initialized before controls
+            scene = new THREE.Scene();
+
+            // Controls
+            controls = new THREE.PointerLockControls(camera, document.body);
+
+            // Listener for when pointer lock is ACHIEVED (game starts/unpauses)
+            controls.addEventListener('lock', function () {
+                blocker.style.opacity = 0;
+                setTimeout(() => blocker.style.display = 'none', 300);
+                isShopOpen = false;
+                shopModal.classList.add('hidden');
+                // Re-enable level activity if the game wasn't won or lost
+                if (!isGameOver && enemies.length > 0 || enemiesSpawnedInLevel < LEVELS[currentLevelIndex].maxEnemies) {
+                    isLevelActive = true; 
+                }
+            });
+
+            // Listener for when pointer lock is LOST (pause, menu, or browser reject)
+            controls.addEventListener('unlock', function () {
+                // Only show pause menu if the game isn't over or currently transitioning levels
+                if (!isGameOver && isLevelActive) { 
+                    blocker.style.opacity = 1;
+                    blocker.style.display = 'flex';
+                    instructions.innerHTML = `<h1 class="text-4xl font-bold mb-4 text-indigo-400">PAUSED</h1><p class="text-lg mb-6 text-gray-200">Click CONTINUE to resume.</p><button id="startButton" class="bg-pink-600 hover:bg-pink-700 text-white font-bold py-3 px-6 rounded-lg transition duration-200 shadow-xl" onclick="controls.lock()">CONTINUE</button>`;
+                }
+            });
+
+            raycaster = new THREE.Raycaster(); 
+            
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            document.addEventListener('click', onFire);
+
+            // Initial game state setup: Full reset before showing level select
+            fullGameReset();
+            showLevelSelect();
+            animate();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        /**
+         * Creates a 3D model of the current weapon and attaches it to the camera.
+         */
+        function addWeaponModel() {
+            // Check if a weapon model already exists attached to the camera and remove it
+            const existingModel = camera.getObjectByName('weaponModel');
+            if (existingModel) {
+                camera.remove(existingModel);
+            }
+            
+            // 1. Define geometry and material based on current weapon
+            // Simple box geometry to represent a gun
+            const weaponGeo = new THREE.BoxGeometry(0.5, 0.2, 3);
+            const weaponMat = new THREE.MeshBasicMaterial({ color: currentWeapon.color });
+            
+            // 2. Create the mesh
+            const newWeaponModel = new THREE.Mesh(weaponGeo, weaponMat);
+            
+            // Give it a unique name for easy access/removal
+            newWeaponModel.name = 'weaponModel'; 
+
+            // 3. Position the weapon relative to the camera (bottom right, slightly forward)
+            newWeaponModel.position.set(0.8, -0.6, -3); 
+            
+            // 4. Attach to the camera
+            camera.add(newWeaponModel);
+        }
+
+
+        /**
+         * Clears all dynamic Three.js objects (enemies, bullets, pickups) and stops the spawner.
+         */
+        function clearDynamicObjects() {
+            enemies.forEach(enemy => scene.remove(enemy));
+            enemies.length = 0;
+
+            projectiles.forEach(p => scene.remove(p));
+            projectiles.length = 0;
+            
+            healthPickups.forEach(p => scene.remove(p));
+            healthPickups.length = 0;
+            
+            clearTimeout(enemyRespawnTimeout);
+        }
+        
+        /**
+         * Performs a complete game state reset (score, money, health, weapon, etc.). Used on Game Over.
+         */
+        function fullGameReset() {
+            clearDynamicObjects();
+
+            // Reset ALL persistent game state
+            score = 0;
+            money = 0;
+            playerHealth = MAX_HEALTH;
+            isGameOver = false;
+            isLevelActive = false; // Ensure game is inactive
+            currentWeapon = WEAPONS.Pistol;
+            enemiesSpawnedInLevel = 0;
+            
+            // Position player back to center
+            controls.getObject().position.set(0, PLAYER_HEIGHT, 0); 
+            
+            addWeaponModel(); 
+            updateHUD();
+        }
+
+        function setupArena(levelConfig) {
+            // Clear existing scene elements (walls, floors, obstacles)
+            while (scene.children.length > 0) {
+                const child = scene.children[0];
+                // Only remove objects attached directly to the scene
+                scene.remove(child);
+            }
+            
+            scene.background = new THREE.Color(0x33334d);
+            scene.fog = new THREE.Fog(0x33334d, 0, 750);
+
+            // Lighting
+            const light = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.75);
+            light.position.set(0.5, 1, 0.75);
+            scene.add(light);
+            
+            // Floor
+            const floorGeometry = new THREE.PlaneGeometry(2000, 2000, 100, 100);
+            floorGeometry.rotateX(-Math.PI / 2);
+            const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x4a4e69 });
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            scene.add(floor);
+
+            // Arena Walls 
+            const wallMaterial = new THREE.MeshLambertMaterial({ color: 0x6e6e9c });
+            const arenaSize = 500;
+            const wallHeight = 100;
+
+            const walls = [];
+
+            // North Wall (Z-)
+            let wallN = new THREE.Mesh(new THREE.BoxGeometry(arenaSize, wallHeight, 5), wallMaterial);
+            wallN.position.set(0, wallHeight / 2, -arenaSize / 2);
+            wallN.userData.isWall = true;
+            scene.add(wallN);
+            walls.push(wallN);
+
+            // South Wall (Z+)
+            let wallS = new THREE.Mesh(new THREE.BoxGeometry(arenaSize, wallHeight, 5), wallMaterial);
+            wallS.position.set(0, wallHeight / 2, arenaSize / 2);
+            wallS.userData.isWall = true;
+            scene.add(wallS);
+            walls.push(wallS);
+            
+            // East Wall (X+)
+            let wallE = new THREE.Mesh(new THREE.BoxGeometry(5, wallHeight, arenaSize), wallMaterial);
+            wallE.position.set(arenaSize / 2, wallHeight / 2, 0);
+            wallE.userData.isWall = true;
+            scene.add(wallE);
+            walls.push(wallE);
+
+            // West Wall (X-)
+            let wallW = new THREE.Mesh(new THREE.BoxGeometry(5, wallHeight, arenaSize), wallMaterial);
+            wallW.position.set(-arenaSize / 2, wallHeight / 2, 0);
+            wallW.userData.isWall = true;
+            scene.add(wallW);
+            walls.push(wallW);
+            
+            // --- PARKOUR OBSTACLES (Level 3+) ---
+            if (levelConfig && levelConfig.parkour) {
+                const obstacleMaterial = new THREE.MeshLambertMaterial({ color: 0x9c6e6e });
+                
+                // Obstacle 1: Large Central Block (15 units high)
+                const obs1 = new THREE.Mesh(new THREE.BoxGeometry(30, 15, 30), obstacleMaterial);
+                obs1.position.set(0, 7.5, 0);
+                obs1.userData.isWall = true;
+                scene.add(obs1);
+                walls.push(obs1);
+
+                // Obstacle 2: High Block (25 units high, requires ramp/jump)
+                const obs2 = new THREE.Mesh(new THREE.BoxGeometry(15, 25, 15), obstacleMaterial);
+                obs2.position.set(50, 12.5, -50);
+                obs2.userData.isWall = true;
+                scene.add(obs2);
+                walls.push(obs2);
+                
+                // Ramp (Simple box geometry tilted)
+                const rampGeo = new THREE.BoxGeometry(50, 2, 10);
+                const ramp = new THREE.Mesh(rampGeo, obstacleMaterial);
+                // Positioned to lead up to the high block
+                ramp.position.set(30, 5, -50); 
+                ramp.rotation.z = Math.PI / 12; // Tilt it up
+                ramp.userData.isWall = true; 
+                scene.add(ramp);
+                walls.push(ramp);
+            }
+
+            // Store walls/obstacles for collision checks
+            scene.userData.walls = walls; 
+            
+            // Ensure weapon model is re-added to the camera after clearing the scene
+            addWeaponModel(); 
+        }
+
+        function showBlocker(htmlContent) {
+            instructions.innerHTML = htmlContent;
+            instructions.style.display = 'block'; 
+            blocker.style.display = 'flex';
+        }
+
+        function showLevelSelect() {
+            controls.unlock();
+            isLevelActive = false; // Critical: Ensure active gameplay stops before menu appears
+            
+            const maxUnlockedLevel = Math.min(LEVELS.length - 1, localStorage.getItem('maxUnlockedLevel') || 0);
+            
+            let levelButtonsHtml = LEVELS.map((level, index) => {
+                const isUnlocked = index <= maxUnlockedLevel;
+                const buttonColor = isUnlocked ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-700 cursor-not-allowed';
+                const buttonText = isUnlocked ? `PLAY` : `LOCKED (Complete L${index})`;
+
+                return `
+                    <div class="flex justify-between items-center p-3 bg-gray-800 rounded-lg border border-indigo-500">
+                        <div>
+                            <p class="text-xl font-bold text-pink-300">${level.name} (Lvl ${index + 1})</p>
+                            <p class="text-sm text-gray-400">Enemies: ${level.maxEnemies} | Health: ${level.enemyHealth} | Damage: ${level.enemyDamage}</p>
+                        </div>
+                        <button class="level-button ${buttonColor} text-white font-bold py-2 px-4 rounded-lg transition duration-200" 
+                                data-level-index="${index}" 
+                                ${!isUnlocked ? 'disabled' : ''}
+                                onclick="startLevel(${index})">
+                            ${buttonText}
+                        </button>
+                    </div>
+                `;
+            }).join('');
+
+            const htmlContent = `
+                <h1 class="text-4xl font-bold mb-6 text-indigo-400">SELECT LEVEL</h1>
+                <div class="space-y-4 w-full max-w-sm">${levelButtonsHtml}</div>
+                <p class="text-sm text-gray-400 mt-6">Current Total Score: <span class="text-pink-400">${score}</span></p>
+            `;
+            showBlocker(htmlContent);
+        }
+
+        function levelComplete() {
+            isLevelActive = false; // CRITICAL: Ensure level is marked inactive
+            controls.unlock();
+            
+            levelTransitionCleanup(); // Clean dynamic objects, keep score/money
+
+            const nextLevelIndex = currentLevelIndex + 1;
+            const maxUnlockedLevel = parseInt(localStorage.getItem('maxUnlockedLevel') || 0);
+
+            // Unlock next level if one exists and if current level is higher than max unlocked
+            if (nextLevelIndex < LEVELS.length && currentLevelIndex === maxUnlockedLevel) {
+                localStorage.setItem('maxUnlockedLevel', nextLevelIndex);
+            }
+            
+            const isGameComplete = nextLevelIndex >= LEVELS.length;
+
+            const nextLevelButton = isGameComplete ? 
+                `<button class="bg-yellow-600 hover:bg-yellow-700 text-black font-bold py-3 px-6 rounded-lg transition duration-200 shadow-xl" onclick="showLevelSelect()">GAME COMPLETE! (REPLAY)</button>` :
+                `<button class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition duration-200 shadow-xl" onclick="showLevelSelect()">CONTINUE TO LEVEL SELECT</button>`;
+
+
+            const htmlContent = `
+                <h1 class="text-5xl font-extrabold mb-4 text-green-400">LEVEL ${currentLevelIndex + 1} CLEARED!</h1>
+                <p class="text-2xl mb-6 text-gray-200">Score: <span class="text-pink-400">${score}</span> | Money Earned: $<span class="text-green-400">${money}</span></p>
+                ${nextLevelButton}
+            `;
+            showBlocker(htmlContent);
+        }
+        
+        /**
+         * Clears dynamic objects and resets level-specific variables, preserving score and money.
+         */
+        function levelTransitionCleanup() {
+            clearDynamicObjects();
+
+            playerHealth = MAX_HEALTH; // Reset health for next level
+            currentWeapon = WEAPONS.Pistol; // Reset weapon to Pistol on level transition
+            enemiesSpawnedInLevel = 0;
+            
+            // Position player back to center
+            controls.getObject().position.set(0, PLAYER_HEIGHT, 0); 
+
+            addWeaponModel(); 
+            updateHUD();
+        }
+
+        function loadLevel(levelIndex) {
+            const levelConfig = LEVELS[levelIndex];
+            if (!levelConfig) return console.error('Invalid level index');
+
+            currentLevelIndex = levelIndex;
+            
+            // 1. Setup Arena (walls + parkour)
+            setupArena(levelConfig);
+            
+            // 2. Update HUD and start spawning
+            updateHUD();
+            startEnemySpawning(levelConfig.maxEnemies);
+
+            isLevelActive = true; // Set game to active after setup and spawning starts
+        }
+        
+        function startLevel(levelIndex) {
+            // Ensure the previous level's score/money is kept when advancing, but health is maxed
+            if (currentLevelIndex !== levelIndex) {
+                 levelTransitionCleanup();
+            }
+
+            loadLevel(levelIndex);
+            // We only call lock here. The 'lock' event listener handles hiding the blocker and setting isLevelActive=true.
+            controls.lock(); 
+        }
+
+
+        // --- Enemy Logic ---
+
+        function createEnemy() {
+            // ... (Enemy creation logic remains the same)
+            const levelConfig = LEVELS[currentLevelIndex];
+            
+            const enemyWidth = 5;
+            const enemyHeight = 10;
+            const enemyDepth = 5;
+
+            const geometry = new THREE.BoxGeometry(enemyWidth, enemyHeight, enemyDepth);
+            const material = new THREE.MeshStandardMaterial({ color: 0x00ff00, transparent: true, opacity: 0.9 });
+            const enemy = new THREE.Mesh(geometry, material);
+            
+            enemy.userData.tag = ENEMY_TAG;
+            enemy.userData.maxHealth = levelConfig.enemyHealth;
+            enemy.userData.health = levelConfig.enemyHealth; // Health determined by level
+            enemy.userData.reward = 100 + (currentLevelIndex * 50); // Increased reward for higher levels
+            enemy.userData.damage = levelConfig.enemyDamage; // Damage determined by level
+            enemy.userData.fireRate = 1500 + (Math.random() * 1000) - 500; 
+            enemy.userData.lastFireTime = performance.now(); 
+            enemy.userData.size = enemyHeight; 
+
+            // Simple health bar 
+            const healthBarContainer = new THREE.Group();
+            healthBarContainer.position.y = (enemyHeight / 2) + 1; 
+
+            const healthBarBack = new THREE.Mesh(
+                new THREE.PlaneGeometry(6, 0.5),
+                new THREE.MeshBasicMaterial({ color: 0xff0000 })
+            );
+            healthBarBack.position.z = -0.1;
+
+            const healthBarFront = new THREE.Mesh(
+                new THREE.PlaneGeometry(6, 0.5),
+                new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+            );
+            healthBarFront.name = 'healthBar';
+            healthBarFront.position.z = 0.0;
+
+            healthBarContainer.add(healthBarBack);
+            healthBarContainer.add(healthBarFront);
+
+            enemy.add(healthBarContainer);
+            return enemy;
+        }
+
+        /**
+         * Creates and places a single enemy instance on the map.
+         */
+        function spawnSingleEnemy() {
+            const levelConfig = LEVELS[currentLevelIndex];
+            
+            // Check if we have hit the absolute maximum enemy count for this level
+            if (enemiesSpawnedInLevel >= levelConfig.maxEnemies) return;
+
+            enemiesSpawnedInLevel++;
+            
+            const enemy = createEnemy();
+
+            // Spawn enemies within the arena defined by the walls
+            const arenaLimit = 240; 
+            let x = Math.random() * (2 * arenaLimit) - arenaLimit;
+            let z = Math.random() * (2 * arenaLimit) - arenaLimit;
+
+            // Ensure enemy is not too close to the player spawn point (center)
+            while (Math.abs(x) < 50 && Math.abs(z) < 50) {
+                x = Math.random() * (2 * arenaLimit) - arenaLimit;
+                z = Math.random() * (2 * arenaLimit) - arenaLimit;
+            }
+
+            // Enemy position set to Y=5.0 so its feet are on the ground (since height is 10)
+            enemy.position.set(x, 5.0, z); 
+            scene.add(enemy);
+            enemies.push(enemy);
+            updateHUD(); // Update enemies left display
+        }
+        
+        /**
+         * Checks if a new enemy should be spawned based on active count and total limit,
+         * and schedules the next check. This ensures a constant enemy presence.
+         */
+        function checkAndScheduleRespawn() {
+            // IMPORTANT: Guard against scheduling if the level is inactive (e.g., already completed)
+            if (!isLevelActive) {
+                clearTimeout(enemyRespawnTimeout);
+                return;
+            }
+
+            const levelConfig = LEVELS[currentLevelIndex];
+            
+            // 1. Check if total enemies limit is reached
+            if (enemiesSpawnedInLevel < levelConfig.maxEnemies) {
+                
+                // 2. Check if active enemies limit (5) is reached
+                if (enemies.length < 5) {
+                    spawnSingleEnemy(); 
+                }
+            }
+            
+            // 3. Schedule the next check
+            clearTimeout(enemyRespawnTimeout);
+            
+            // If the level completion conditions are met, stop scheduling
+            if (enemiesSpawnedInLevel >= levelConfig.maxEnemies && enemies.length === 0) {
+                 // Level completion will be handled by handleEnemyKill, we just stop scheduling here
+                 return;
+            }
+
+            // Otherwise, schedule the next check
+            enemyRespawnTimeout = setTimeout(() => checkAndScheduleRespawn(), RESPAWN_INTERVAL);
+        }
+
+        function startEnemySpawning(maxEnemies) {
+            clearTimeout(enemyRespawnTimeout);
+            // Spawn the initial batch of enemies rapidly
+            for (let i = 0; i < Math.min(maxEnemies, 5); i++) { // Only spawn max 5 initially
+                setTimeout(spawnSingleEnemy, i * 500); 
+            }
+            // Set up continuous respawn check (which will also self-schedule)
+            enemyRespawnTimeout = setTimeout(() => checkAndScheduleRespawn(), RESPAWN_INTERVAL);
+        }
+
+
+        function updateEnemyHealthBar(enemy) {
+            // ... (Health bar logic remains the same)
+            const healthBar = enemy.getObjectByName('healthBar');
+            if (!healthBar) return;
+
+            const maxHealth = enemy.userData.maxHealth;
+            const healthRatio = enemy.userData.health / maxHealth;
+
+            // Recalculate size and position for the generic health bar plane
+            healthBar.scale.x = healthRatio;
+            healthBar.position.x = (healthRatio - 1) * 3; // Shift position based on scale change
+
+            if (healthRatio < 0.3) {
+                 healthBar.material.color.setHex(0xff0000); 
+            } else if (healthRatio < 0.7) {
+                 healthBar.material.color.setHex(0xffff00); 
+            } else {
+                 healthBar.material.color.setHex(0x00ff00); 
+            }
+        }
+        
+        function handleEnemyFire(enemy) {
+            // ... (Enemy fire logic remains the same)
+            const randomOffset = (Math.random() * 1000) - 500; 
+            enemy.userData.lastFireTime = performance.now();
+            enemy.userData.fireRate = 1500 + randomOffset; // Use base rate for consistency
+            
+            // Start position is slightly above the enemy cube
+            const startPosition = enemy.position.clone().add(new THREE.Vector3(0, 3.5, 0)); 
+            
+            const playerPosition = controls.getObject().position.clone();
+            const direction = playerPosition.sub(startPosition).normalize();
+            
+            // Spawn the projectile (Enemy bullet is Yellow)
+            createProjectile(
+                startPosition, 
+                direction, 
+                enemy.userData.damage, 
+                true // isEnemyBullet: true
+            );
+        }
+
+        /**
+         * Runs the enemy's AI logic, including movement and firing.
+         */
+        function enemyAITick(delta) {
+            if (isGameOver || !isLevelActive) return; // Guard for active level state
+            const playerPosition = controls.getObject().position;
+            const now = performance.now();
+
+            enemies.forEach(enemy => {
+                // Health bar orientation (always face player)
+                const healthBarContainer = enemy.children.find(c => c instanceof THREE.Group);
+                if (healthBarContainer) {
+                    healthBarContainer.lookAt(camera.position);
+                }
+
+                const distance = enemy.position.distanceTo(playerPosition);
+                
+                // 1. Movement Logic
+                if (distance > ENEMY_APPROACH_RANGE) {
+                    const direction = playerPosition.clone().sub(enemy.position);
+                    direction.y = 0; 
+                    direction.normalize();
+
+                    enemy.position.x += direction.x * ENEMY_SPEED * delta;
+                    enemy.position.z += direction.z * ENEMY_SPEED * delta;
+                }
+
+                // 2. Firing Logic
+                const ENEMY_RANGE = 250; 
+                if (distance > ENEMY_RANGE) return; 
+
+                if (now < enemy.userData.lastFireTime + enemy.userData.fireRate) return;
+
+                handleEnemyFire(enemy);
+            });
+        }
+
+
+        // --- Player Controls and Actions ---
+
+        function onKeyDown(event) {
+            // Allow E key for shop even when paused/inactive (if not game over)
+            if (!isGameOver && event.code === 'KeyE') {
+                 toggleShop(); 
+                 return;
+            }
+            if (isGameOver || !controls.isLocked || !isLevelActive) return;
+
+            switch (event.code) {
+                case 'KeyW': moveForward = true; break;
+                case 'KeyA': moveLeft = true; break;
+                case 'KeyS': moveBackward = true; break;
+                case 'KeyD': moveRight = true; break;
+                case 'Space': if (canJump === true) velocity.y += 150; canJump = false; break;
+            }
+        }
+
+        function onKeyUp(event) {
+            if (isGameOver || !controls.isLocked || !isLevelActive) return;
+            switch (event.code) {
+                case 'KeyW': moveForward = false; break;
+                case 'KeyA': moveLeft = false; break;
+                case 'KeyS': moveBackward = false; break;
+                case 'KeyD': moveRight = false; break;
+            }
+        }
+
+        function createProjectile(startPosition, direction, damage, isEnemy) {
+            // ... (Projectile creation logic remains the same)
+            const color = isEnemy ? 0xfacc15 : 0xff416c; 
+            const size = isEnemy ? 0.4 : 0.2; 
+
+            const bulletGeometry = new THREE.SphereGeometry(size, 8, 8);
+            const bulletMaterial = new THREE.MeshBasicMaterial({ color: color });
+            const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
+
+            bullet.position.copy(startPosition);
+
+            bullet.userData.velocity = direction.clone();
+            bullet.userData.damage = damage;
+            bullet.userData.startPosition = bullet.position.clone();
+            bullet.userData.isEnemyBullet = isEnemy; 
+
+            scene.add(bullet);
+            projectiles.push(bullet);
+        }
+
+
+        function onFire() {
+            if (!controls.isLocked || isShopOpen || isGameOver || !isLevelActive) return; // Guard against shooting when inactive
+
+            const currentTime = performance.now();
+            if (currentTime < lastShotTime + currentWeapon.rate) return; 
+
+            lastShotTime = currentTime;
+
+            const direction = new THREE.Vector3();
+            camera.getWorldDirection(direction);
+            
+            const startPosition = controls.getObject().position.clone();
+            startPosition.add(direction.clone().multiplyScalar(4)); 
+            
+            createProjectile(
+                startPosition, 
+                direction, 
+                currentWeapon.damage, 
+                false 
+            );
+        }
+
+        /**
+         * Handles the complete process of an enemy death, including the critical level completion check.
+         * @param {THREE.Mesh} enemy - The defeated enemy object.
+         */
+        function handleEnemyKill(enemy) {
+            const reward = enemy.userData.reward;
+            score += 10;
+            money += reward;
+
+            // 1. Drop Health Pickup Check
+            if (Math.random() < HEALTH_DROP_CHANCE) {
+                createHealthPickup(enemy.position.clone()); 
+            }
+            
+            // 2. Remove enemy from scene and array
+            scene.remove(enemy);
+            const index = enemies.indexOf(enemy);
+            if (index > -1) {
+                enemies.splice(index, 1);
+            }
+            
+            // 3. Check for Level Completion: If all enemies have been spawned AND none are left alive
+            const levelConfig = LEVELS[currentLevelIndex];
+            
+            if (enemiesSpawnedInLevel >= levelConfig.maxEnemies && enemies.length === 0) {
+                // FIX: Immediately set state to inactive and stop spawning.
+                // This stops the main animate loop from running physics/updates for the next frame.
+                isLevelActive = false; 
+                clearTimeout(enemyRespawnTimeout); 
+                
+                // FIX: Use a small delay before triggering the menu transition (levelComplete).
+                // This prevents the race condition and resulting physics glitch.
+                setTimeout(levelComplete, 50); 
+            } else {
+                 // Check if we need to manually start the respawn check if it stopped
+                 checkAndScheduleRespawn();
+            }
+            
+            updateHUD();
+        }
+
+        // --- Health Pickup Logic ---
+        function createHealthPickup(position) {
+            // ... (Health pickup creation logic remains the same)
+            const pickupGroup = new THREE.Group();
+            pickupGroup.userData.tag = 'healthPickup';
+            
+            const material = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // Red
+            
+            const barV = new THREE.Mesh(new THREE.BoxGeometry(1, 4, 1), material);
+            const barH = new THREE.Mesh(new THREE.BoxGeometry(4, 1, 1), material);
+
+            barV.rotation.y = Math.PI / 4;
+            barH.rotation.y = Math.PI / 4;
+            
+            pickupGroup.add(barV);
+            pickupGroup.add(barH);
+            
+            pickupGroup.position.copy(position);
+            pickupGroup.position.y = 2.5; 
+            
+            scene.add(pickupGroup);
+            healthPickups.push(pickupGroup);
+        }
+
+        /**
+         * Checks for player collision with health pickups and applies healing.
+         */
+        function updateHealthPickups(delta) {
+            if (isGameOver || !isLevelActive) return; // Guard for active level state
+            const playerObject = controls.getObject();
+            const playerPosition = playerObject.position;
+            
+            for (let i = healthPickups.length - 1; i >= 0; i--) {
+                const pickup = healthPickups[i];
+                
+                // Animate the pickup
+                pickup.rotation.y += Math.PI * 0.5 * delta;
+
+                // Check distance for collision
+                const dx = playerPosition.x - pickup.position.x;
+                const dz = playerPosition.z - pickup.position.z;
+                const horizontalDistanceSq = dx * dx + dz * dz;
+
+                if (horizontalDistanceSq < PICKUP_RADIUS * PICKUP_RADIUS) {
+                    
+                    playerHealth += HEALTH_PICKUP_VALUE;
+                    if (playerHealth > MAX_HEALTH) {
+                        playerHealth = MAX_HEALTH;
+                    }
+                    updateHUD();
+                    
+                    // Remove pickup
+                    scene.remove(pickup);
+                    healthPickups.splice(i, 1);
+                }
+            }
+        }
+
+
+        function toggleShop() {
+            if (isGameOver) return;
+
+            isShopOpen = !isShopOpen;
+            if (isShopOpen) {
+                // If opening shop, unlock the pointer
+                isLevelActive = false; // Pause game logic
+                controls.unlock();
+                shopModal.classList.remove('hidden');
+                instructions.style.display = 'none'; 
+                updateShopState();
+            } else {
+                // If closing shop, attempt to lock the pointer
+                shopModal.classList.add('hidden');
+                // controls.lock() will trigger the 'lock' event listener, which re-enables isLevelActive 
+                // via the controls.addEventListener('lock', ...) callback if the level is not complete/game over.
+                controls.lock(); 
+            }
+        }
+
+        function handleGameOver() {
+            isGameOver = true;
+            isLevelActive = false; // CRITICAL: Stop all gameplay logic immediately
+            controls.unlock();
+            
+            // Clear dynamic objects immediately to stop any lingering physics checks
+            clearDynamicObjects();
+
+            instructions.innerHTML = `
+                <h1 class="text-5xl font-extrabold mb-4 text-red-500">GAME OVER</h1>
+                <p class="text-2xl mb-6 text-gray-200">Final Score: <span class="text-pink-400">${score}</span></p>
+                <button id="restartButton" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg transition duration-200 shadow-xl" onclick="showLevelSelect()">RESTART GAME</button>
+            `;
+            instructions.style.display = 'block'; 
+            blocker.style.display = 'flex';
+            
+            // Reset score/money for next game
+            score = 0;
+            money = 0;
+            updateHUD();
+        }
+
+
+        function updateShopState() {
+            // ... (Shop logic remains the same)
+            const canAffordShotgun = money >= WEAPONS.Shotgun.cost;
+
+            if (currentWeapon.name === WEAPONS.Shotgun.name) {
+                buyShotgunButton.textContent = 'EQUIPPED';
+                buyShotgunButton.disabled = true;
+                buyShotgunButton.classList.remove('bg-green-600', 'hover:bg-green-700');
+                buyShotgunButton.classList.add('bg-gray-500', 'cursor-not-allowed');
+            } else if (canAffordShotgun) {
+                buyShotgunButton.textContent = 'BUY';
+                buyShotgunButton.disabled = false;
+                buyShotgunButton.classList.remove('bg-gray-500', 'cursor-not-allowed');
+                buyShotgunButton.classList.add('bg-green-600', 'hover:bg-green-700');
+            } else {
+                buyShotgunButton.textContent = 'CANNOT AFFORD';
+                buyShotgunButton.disabled = true;
+                buyShotgunButton.classList.remove('bg-green-600', 'hover:bg-green-700');
+                buyShotgunButton.classList.add('bg-gray-500', 'cursor-not-allowed');
+            }
+        }
+
+        function buyWeapon(weaponKey) {
+            // ... (Buy weapon logic remains the same)
+            const weapon = WEAPONS[weaponKey];
+            if (!weapon) return console.error('Weapon not found');
+
+            if (money >= weapon.cost) {
+                money -= weapon.cost;
+                currentWeapon = weapon;
+                addWeaponModel(); 
+                updateHUD();
+                updateShopState();
+            }
+        }
+
+        function updateHUD() {
+            // ... (HUD logic remains the same)
+            scoreDisplay.textContent = score;
+            moneyDisplay.textContent = money;
+            weaponNameDisplay.textContent = currentWeapon.name;
+            weaponStatsDisplay.textContent = `Damage: ${currentWeapon.damage} | Rate: ${currentWeapon.rate}ms`;
+            currentLevelDisplay.textContent = `Level: ${currentLevelIndex + 1}`;
+            
+            const levelConfig = LEVELS[currentLevelIndex];
+            // Calculate remaining enemies: max allowed - (spawned - alive)
+            const remainingEnemies = levelConfig.maxEnemies - (enemiesSpawnedInLevel - enemies.length);
+            enemiesLeftDisplay.textContent = remainingEnemies < 0 ? 0 : remainingEnemies;
+
+            const healthPercentage = (playerHealth / MAX_HEALTH) * 100;
+            healthBar.style.width = `${healthPercentage}%`;
+            healthValueDisplay.textContent = playerHealth;
+
+            if (healthPercentage > 50) {
+                healthBar.style.backgroundColor = '#10b981'; 
+            } else if (healthPercentage > 20) {
+                healthBar.style.backgroundColor = '#facc15'; 
+            } else {
+                healthBar.style.backgroundColor = '#ef4444'; 
+            }
+        }
+
+        /**
+         * Updates bullet positions and checks for collisions against the appropriate targets.
+         */
+        function updateProjectiles(delta) {
+            if (!isLevelActive) return; // Guard for active level state
+
+            const playerObject = controls.getObject();
+            const wallObjects = scene.userData.walls || []; 
+
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const bullet = projectiles[i];
+                
+                // Defensive check (retained from previous fix)
+                if (!bullet) {
+                    projectiles.splice(i, 1);
+                    continue; 
+                }
+                
+                // 1. Move the bullet
+                // Check isLevelActive again inside the loop just in case a bullet caused a game over 
+                // and the list is now being processed on the next frame.
+                if (!isLevelActive) {
+                    scene.remove(bullet);
+                    projectiles.splice(i, 1);
+                    continue;
+                }
+                
+                bullet.position.addScaledVector(bullet.userData.velocity, BULLET_SPEED * delta);
+
+                let hit = false;
+                
+                if (bullet.userData.isEnemyBullet) {
+                    // --- ENEMY BULLET COLLISION (Checks against Player) ---
+                    const distance = bullet.position.distanceTo(playerObject.position);
+                    
+                    if (distance < PLAYER_HIT_RADIUS) { 
+                        playerHealth -= bullet.userData.damage;
+                        if (playerHealth < 0) playerHealth = 0;
+                        updateHUD();
+
+                        if (playerHealth === 0) {
+                            handleGameOver();
+                        }
+                        hit = true;
+                    }
+                } else {
+                    // --- PLAYER BULLET COLLISION (Checks against Enemies AND Walls) ---
+                    
+                    // A. Check Enemy Collision
+                    for (let j = 0; j < enemies.length; j++) {
+                        const enemy = enemies[j];
+                        // Defensive check before accessing enemy
+                        if (!enemy) continue; 
+                        
+                        const distance = bullet.position.distanceTo(enemy.position);
+                        
+                        if (distance < ENEMY_HIT_RADIUS) {
+                            enemy.userData.health -= bullet.userData.damage;
+                            updateEnemyHealthBar(enemy);
+
+                            if (enemy.userData.health <= 0) {
+                                handleEnemyKill(enemy);
+                            }
+                            hit = true;
+                            break; 
+                        }
+                    }
+
+                    // B. Check Wall Collision (Only if enemy wasn't hit)
+                    if (!hit) {
+                         const bulletRadius = bullet.geometry.parameters.radius;
+                         const bulletSphere = new THREE.Sphere(bullet.position, bulletRadius);
+                         
+                         for(let j = 0; j < wallObjects.length; j++) {
+                            const wall = wallObjects[j];
+                            // Create a Bounding Box (Box3) for the wall
+                            const wallBox = new THREE.Box3().setFromObject(wall);
+                            
+                            // Check for intersection between the bullet sphere and the wall box
+                            if (wallBox.intersectsSphere(bulletSphere)) {
+                                hit = true;
+                                break;
+                            }
+                         }
+                    }
+                }
+
+                // 2. Out of Range Check
+                const distanceTraveled = bullet.position.distanceTo(bullet.userData.startPosition);
+                if (distanceTraveled > BULLET_LIFESPAN) {
+                    hit = true; 
+                }
+
+                // 3. Remove the bullet if it hit something or exceeded range
+                if (hit) {
+                    scene.remove(bullet);
+                    projectiles.splice(i, 1);
+                }
+            }
+        }
+
+        /**
+         * Checks player position against the fixed arena boundaries.
+         */
+        function enforceWallCollision(position) {
+            
+            // X-axis bounds check
+            if (position.x > ARENA_LIMIT) {
+                position.x = ARENA_LIMIT;
+                velocity.x = 0;
+            } else if (position.x < -ARENA_LIMIT) {
+                position.x = -ARENA_LIMIT;
+                velocity.x = 0;
+            }
+
+            // Z-axis bounds check
+            if (position.z > ARENA_LIMIT) {
+                position.z = ARENA_LIMIT;
+                velocity.z = 0;
+            } else if (position.z < -ARENA_LIMIT) {
+                position.z = -ARENA_LIMIT;
+                velocity.z = 0;
+            }
+        }
+
+
+        // --- Main Animation Loop ---
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+            const playerObject = controls.getObject();
+            const delta = (time - prevTime) / 1000;
+
+            // This condition ensures the game only runs when controls are locked AND the level is active
+            if (controls.isLocked === true && isLevelActive) {
+                
+                const speed = 1200.0; 
+                const damping = 20.0; 
+                const gravity = 9.8 * 100;
+
+                // Player Movement physics update
+                velocity.x -= velocity.x * damping * delta;
+                velocity.z -= velocity.z * damping * delta;
+                velocity.y -= gravity * delta;
+
+                direction.z = Number(moveForward) - Number(moveBackward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
+
+                if (moveForward || moveBackward) velocity.z -= direction.z * speed * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * speed * delta;
+
+                // Apply movement
+                controls.moveRight(-velocity.x * delta);
+                controls.moveForward(-velocity.z * delta);
+                playerObject.position.y += (velocity.y * delta);
+
+                // Floor collision (keep player above ground)
+                if (playerObject.position.y < PLAYER_HEIGHT) {
+                    velocity.y = 0;
+                    playerObject.position.y = PLAYER_HEIGHT; // Player camera height
+                    canJump = true;
+                }
+
+                // Enforce Wall Collision
+                enforceWallCollision(playerObject.position);
+                
+                // Game Updates (Only run when active)
+                updateProjectiles(delta); 
+                enemyAITick(delta); 
+                updateHealthPickups(delta); 
+            }
+
+            prevTime = time;
+
+            renderer.render(scene, camera);
+        }
+
+        // Initialize the game and local storage when the window loads
+        window.onload = function () {
+            // Initialize level progress if not present
+            if (localStorage.getItem('maxUnlockedLevel') === null) {
+                localStorage.setItem('maxUnlockedLevel', 0);
+            }
+            init();
+        }
+
+    </script>
+</body>
+</html>
